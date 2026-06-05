@@ -19,8 +19,8 @@ export class EntryApplication extends BaseEntity {
   pipelineUnitId: string;
 
   @Column({
-    type: "enum",
-    enum: PipelineType,
+    type: "varchar",
+    length: 50,
   })
   pipelineType: PipelineType;
 
@@ -58,8 +58,8 @@ export class EntryApplication extends BaseEntity {
   spaceOccupancy: number;
 
   @Column({
-    type: "enum",
-    enum: EntryApplicationStatus,
+    type: "varchar",
+    length: 50,
     default: EntryApplicationStatus.PENDING,
   })
   status: EntryApplicationStatus;
@@ -67,16 +67,16 @@ export class EntryApplication extends BaseEntity {
   @Column("text", { nullable: true })
   rejectionReason: string;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   approvedAt: Date;
 
   @Column({ nullable: true })
   approvedBy: string;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   expectedEntryDate: Date;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   actualEntryDate: Date;
 
   @OneToMany(() => Pipeline, (pipeline) => pipeline.entryApplication)

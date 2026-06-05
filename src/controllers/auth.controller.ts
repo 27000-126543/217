@@ -49,7 +49,11 @@ class AuthController {
         },
       });
     } catch (error) {
-      res.status(500).json({ message: "登录失败", error });
+      console.error("登录错误:", error);
+      res.status(500).json({ 
+        message: "登录失败", 
+        error: error instanceof Error ? error.message : String(error) 
+      });
     }
   }
 

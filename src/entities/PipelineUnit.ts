@@ -35,7 +35,7 @@ export class PipelineUnit extends BaseEntity {
   @Column({ default: false })
   isRestricted: boolean;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   restrictedUntil: Date;
 
   @OneToMany(() => EntryApplication, (app) => app.pipelineUnit)

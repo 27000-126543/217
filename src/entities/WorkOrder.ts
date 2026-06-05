@@ -27,15 +27,15 @@ export class WorkOrder extends BaseEntity {
   problemCategory: string;
 
   @Column({
-    type: "enum",
-    enum: WorkOrderPriority,
+    type: "varchar",
+    length: 50,
     default: WorkOrderPriority.MEDIUM,
   })
   priority: WorkOrderPriority;
 
   @Column({
-    type: "enum",
-    enum: WorkOrderStatus,
+    type: "varchar",
+    length: 50,
     default: WorkOrderStatus.CREATED,
   })
   status: WorkOrderStatus;
@@ -76,25 +76,25 @@ export class WorkOrder extends BaseEntity {
   @Column({ nullable: true })
   assignedTeam: string;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   assignedAt: Date;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   startedAt: Date;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   completedAt: Date;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   closedAt: Date;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   dueDate: Date;
 
   @Column({ default: 0 })
   escalationLevel: number;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   lastEscalatedAt: Date;
 
   @Column("text", { nullable: true })

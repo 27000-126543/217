@@ -24,14 +24,14 @@ export class Alarm extends BaseEntity {
   description: string;
 
   @Column({
-    type: "enum",
-    enum: AlarmLevel,
+    type: "varchar",
+    length: 50,
   })
   level: AlarmLevel;
 
   @Column({
-    type: "enum",
-    enum: AlarmStatus,
+    type: "varchar",
+    length: 50,
     default: AlarmStatus.PENDING,
   })
   status: AlarmStatus;
@@ -42,10 +42,10 @@ export class Alarm extends BaseEntity {
   @Column("decimal", { precision: 10, scale: 2, nullable: true })
   thresholdValue: number;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   acknowledgedAt: Date;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   resolvedAt: Date;
 
   @Column({ nullable: true })
@@ -57,7 +57,7 @@ export class Alarm extends BaseEntity {
   @Column({ default: 0 })
   escalationCount: number;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   lastEscalatedAt: Date;
 
   @ManyToOne(() => EmergencyPlan, (plan) => plan.alarms)

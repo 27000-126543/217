@@ -1,8 +1,8 @@
 import "reflect-metadata";
-import * as express from "express";
-import * as cors from "cors";
-import * as helmet from "helmet";
-import * as morgan from "morgan";
+import express = require("express");
+import cors = require("cors");
+import helmet = require("helmet");
+import morgan = require("morgan");
 import { createServer } from "http";
 import { AppDataSource } from "./data-source";
 import { config } from "./config";

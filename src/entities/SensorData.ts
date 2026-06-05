@@ -14,7 +14,7 @@ export class SensorData extends BaseEntity {
   @Column("decimal", { precision: 10, scale: 2 })
   value: number;
 
-  @Column({ type: "timestamp" })
+  @Column()
   timestamp: Date;
 
   @Column({ default: false })

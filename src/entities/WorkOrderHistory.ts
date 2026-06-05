@@ -12,21 +12,21 @@ export class WorkOrderHistory extends BaseEntity {
   workOrderId: string;
 
   @Column({
-    type: "enum",
-    enum: WorkOrderStatus,
+    type: "varchar",
+    length: 50,
   })
   previousStatus: WorkOrderStatus;
 
   @Column({
-    type: "enum",
-    enum: WorkOrderStatus,
+    type: "varchar",
+    length: 50,
   })
   newStatus: WorkOrderStatus;
 
   @Column({ nullable: true })
   operatorId: string;
 
-  @Column({ type: "timestamp" })
+  @Column()
   operationTime: Date;
 
   @Column("text", { nullable: true })

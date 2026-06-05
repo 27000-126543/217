@@ -4,10 +4,9 @@ import { DeviceControlLog } from "../entities/DeviceControlLog";
 import { EnergyReport } from "../entities/EnergyReport";
 import { DeviceStatus, DeviceType, SensorType } from "../entities/enums";
 import { wsService } from "./websocket.service";
-import { notificationService } from "./notification.service";
-import { NotificationType } from "../entities/enums";
 import { SensorData } from "../entities/SensorData";
 import { Sensor } from "../entities/Sensor";
+import { Between } from "typeorm";
 
 class DeviceService {
   private deviceRepo = AppDataSource.getRepository(Device);
@@ -85,7 +84,9 @@ class DeviceService {
     if (!lastOnLog) return 0;
 
     const now = new Date();
-    return Math.round((now.getTime() - lastOnLog.operationTime.getTime()) / 60000);
+    return Math.round(
+      (now.getTime() - lastOnLog.operationTime.getTime()) / 60000
+    );
   }
 
   private calculateEnergy(device: Device, minutes: number): number {
@@ -132,7 +133,7 @@ class DeviceService {
                 DeviceStatus.ON,
                 "automatic",
                 `水位过高: ${value}mm，自动启动排水泵`
-              );
+              ).catch(() => {});
             }
           }
         } else if (value < 50) {
@@ -144,7 +145,7 @@ class DeviceService {
                 DeviceStatus.OFF,
                 "automatic",
                 `水位恢复正常: ${value}mm，自动关闭排水泵`
-              );
+              ).catch(() => {});
             }
           }
         }
@@ -164,7 +165,7 @@ class DeviceService {
                 DeviceStatus.ON,
                 "automatic",
                 `气体浓度过高: ${sensor.type}=${value}，自动启动通风系统`
-              );
+              ).catch(() => {});
             }
           }
         } else if (value < threshold * 0.3) {
@@ -178,7 +179,7 @@ class DeviceService {
                 DeviceStatus.OFF,
                 "automatic",
                 `气体浓度恢复正常: ${sensor.type}=${value}，自动关闭通风系统`
-              );
+              ).catch(() => {});
             }
           }
         }
@@ -196,7 +197,7 @@ class DeviceService {
                 DeviceStatus.ON,
                 "automatic",
                 `温度过高: ${value}°C，自动启动通风降温`
-              );
+              ).catch(() => {});
             }
           }
         } else if (value < 25) {
@@ -210,7 +211,7 @@ class DeviceService {
                 DeviceStatus.OFF,
                 "automatic",
                 `温度恢复正常: ${value}°C，自动关闭通风系统`
-              );
+              ).catch(() => {});
             }
           }
         }
@@ -233,7 +234,7 @@ class DeviceService {
   ) {
     const where: any = { deviceId };
     if (startTime && endTime) {
-      where.operationTime = { $between: [startTime, endTime] };
+      where.operationTime = Between(startTime, endTime);
     }
 
     const [logs, total] = await this.controlLogRepo.findAndCount({
@@ -314,7 +315,10 @@ class DeviceService {
     }
 
     const existingReport = await this.energyReportRepo.findOne({
-      where: { tunnelSectionId, reportDate: startOfDay },
+      where: {
+        tunnelSectionId,
+        reportDate: startOfDay,
+      },
     });
 
     if (existingReport) {
@@ -360,11 +364,12 @@ class DeviceService {
       where.tunnelSectionId = tunnelSectionId;
     }
     if (startDate && endDate) {
-      where.reportDate = { $between: [startDate, endDate] };
+      where.reportDate = Between(startDate, endDate);
     }
 
     const [reports, total] = await this.energyReportRepo.findAndCount({
       where,
+      relations: ["tunnelSection"],
       order: { reportDate: "DESC" },
       skip: (page - 1) * pageSize,
       take: pageSize,

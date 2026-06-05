@@ -11,8 +11,8 @@ export class Inspection extends BaseEntity {
   code: string;
 
   @Column({
-    type: "enum",
-    enum: InspectionType,
+    type: "varchar",
+    length: 50,
     default: InspectionType.MANUAL,
   })
   type: InspectionType;
@@ -29,10 +29,10 @@ export class Inspection extends BaseEntity {
   @Column()
   tunnelSectionId: string;
 
-  @Column({ type: "timestamp" })
+  @Column()
   startTime: Date;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   endTime: Date;
 
   @Column("text", { nullable: true })

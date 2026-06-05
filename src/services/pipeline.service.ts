@@ -14,7 +14,7 @@ import {
 } from "../entities/enums";
 import { wsService } from "./websocket.service";
 import { notificationService } from "./notification.service";
-import { v4 as uuidv4 } from "uuid";
+import { Between } from "typeorm";
 
 class PipelineService {
   private applicationRepo = AppDataSource.getRepository(EntryApplication);
@@ -56,17 +56,15 @@ class PipelineService {
 
     const routeAnalysis = await this.analyzeRoute(saved);
     saved.optimizedRoute = routeAnalysis.optimizedRoute;
-    saved.routeAnalysis = routeAnalysis;
+    saved.routeAnalysis = routeAnalysis as any;
     saved.safetySpacing = routeAnalysis.safetySpacing;
     saved.spaceOccupancy = routeAnalysis.spaceOccupancy;
 
     const finalApplication = await this.applicationRepo.save(saved);
 
-    wsService.broadcast(
-      "entry_application_created",
-      finalApplication,
-      [UserRole.ADMIN]
-    );
+    wsService.broadcast("entry_application_created", finalApplication, [
+      UserRole.ADMIN,
+    ]);
 
     return finalApplication;
   }
@@ -207,7 +205,10 @@ class PipelineService {
     pipelineType: PipelineType,
     spaceOccupancy: number
   ): { occupancyFee: number; maintenanceFee: number; total: number } {
-    const rateMap: Record<PipelineType, { occupancy: number; maintenance: number }> = {
+    const rateMap: Record<
+      PipelineType,
+      { occupancy: number; maintenance: number }
+    > = {
       [PipelineType.GAS]: { occupancy: 150, maintenance: 80 },
       [PipelineType.ELECTRIC]: { occupancy: 120, maintenance: 60 },
       [PipelineType.WATER_SUPPLY]: { occupancy: 80, maintenance: 40 },
@@ -249,13 +250,15 @@ class PipelineService {
     const contract = await this.generateContract(saved);
     await this.generateBill(saved, contract);
 
-    await notificationService.createNotification(
-      application.pipelineUnitId,
-      "入廊申请已批准",
-      `您的入廊申请 ${application.applicationNo} 已批准，请查看合同并缴费`,
-      NotificationType.ENTRY_APPLICATION,
-      { applicationId: saved.id }
-    );
+    if (application.pipelineUnitId) {
+      await notificationService.createNotification(
+        application.pipelineUnitId,
+        "入廊申请已批准",
+        `您的入廊申请 ${application.applicationNo} 已批准，请查看合同并缴费`,
+        NotificationType.ENTRY_APPLICATION,
+        { applicationId: saved.id }
+      );
+    }
 
     wsService.broadcast("entry_application_approved", saved);
 
@@ -281,13 +284,15 @@ class PipelineService {
 
     const saved = await this.applicationRepo.save(application);
 
-    await notificationService.createNotification(
-      application.pipelineUnitId,
-      "入廊申请被拒绝",
-      `您的入廊申请 ${application.applicationNo} 被拒绝: ${reason}`,
-      NotificationType.ENTRY_APPLICATION,
-      { applicationId: saved.id }
-    );
+    if (application.pipelineUnitId) {
+      await notificationService.createNotification(
+        application.pipelineUnitId,
+        "入廊申请被拒绝",
+        `您的入廊申请 ${application.applicationNo} 被拒绝: ${reason}`,
+        NotificationType.ENTRY_APPLICATION,
+        { applicationId: saved.id }
+      );
+    }
 
     return saved;
   }
@@ -301,6 +306,10 @@ class PipelineService {
       application.spaceOccupancy || 0
     );
 
+    const startDate = application.expectedEntryDate || new Date();
+    const endDate = new Date(startDate);
+    endDate.setFullYear(endDate.getFullYear() + 1);
+
     const contract = this.contractRepo.create({
       contractNo: `CT-${Date.now()}`,
       applicationId: application.id,
@@ -308,11 +317,8 @@ class PipelineService {
       totalAmount: costEstimate.total,
       occupancyFee: costEstimate.occupancyFee,
       maintenanceFee: costEstimate.maintenanceFee,
-      contractStartDate: application.expectedEntryDate || new Date(),
-      contractEndDate: new Date(
-        (application.expectedEntryDate || new Date()).getTime() +
-          365 * 24 * 60 * 60 * 1000
-      ),
+      contractStartDate: startDate,
+      contractEndDate: endDate,
     });
 
     return await this.contractRepo.save(contract);
@@ -326,9 +332,8 @@ class PipelineService {
     dueDate.setDate(dueDate.getDate() + 30);
 
     const billingPeriodStart = new Date();
-    const billingPeriodEnd = new Date(
-      billingPeriodStart.getTime() + 365 * 24 * 60 * 60 * 1000
-    );
+    const billingPeriodEnd = new Date(billingPeriodStart);
+    billingPeriodEnd.setFullYear(billingPeriodEnd.getFullYear() + 1);
 
     const bill = this.billRepo.create({
       billNo: `BILL-${Date.now()}`,
@@ -374,7 +379,7 @@ class PipelineService {
 
     const saved = await this.billRepo.save(bill);
 
-    if (bill.pipelineUnit.isRestricted) {
+    if (bill.pipelineUnit && bill.pipelineUnit.isRestricted) {
       bill.pipelineUnit.isRestricted = false;
       bill.pipelineUnit.restrictedUntil = null;
       await this.pipelineUnitRepo.save(bill.pipelineUnit);
@@ -385,23 +390,22 @@ class PipelineService {
 
   async checkOverdueBills() {
     const now = new Date();
-    const overdueBills = await this.billRepo.find({
-      where: {
-        status: BillStatus.UNPAID,
-        dueDate: { $lt: now },
-      },
-      relations: ["pipelineUnit"],
-    });
+    const overdueBills = await this.billRepo
+      .createQueryBuilder("bill")
+      .leftJoinAndSelect("bill.pipelineUnit", "pipelineUnit")
+      .where("bill.status = :status", { status: BillStatus.UNPAID })
+      .andWhere("bill.dueDate < :now", { now })
+      .getMany();
 
     for (const bill of overdueBills) {
       bill.status = BillStatus.OVERDUE;
       bill.reminderCount = (bill.reminderCount || 0) + 1;
       bill.lastReminderAt = now;
-      bill.lateFee = bill.totalAmount * 0.001 * bill.reminderCount;
+      bill.lateFee = bill.totalAmount * 0.001 * (bill.reminderCount || 1);
 
       await this.billRepo.save(bill);
 
-      if (bill.reminderCount >= 3) {
+      if (bill.reminderCount >= 3 && bill.pipelineUnit) {
         bill.pipelineUnit.isRestricted = true;
         bill.pipelineUnit.restrictedUntil = null;
         await this.pipelineUnitRepo.save(bill.pipelineUnit);
@@ -436,18 +440,31 @@ class PipelineService {
     page: number = 1,
     pageSize: number = 20
   ) {
-    const where: any = {};
-    if (filters.status) where.status = filters.status;
-    if (filters.pipelineUnitId) where.pipelineUnitId = filters.pipelineUnitId;
-    if (filters.pipelineType) where.pipelineType = filters.pipelineType;
+    const qb = this.applicationRepo
+      .createQueryBuilder("app")
+      .leftJoinAndSelect("app.pipelineUnit", "pipelineUnit")
+      .leftJoinAndSelect("app.startTunnelSection", "startTunnelSection")
+      .leftJoinAndSelect("app.endTunnelSection", "endTunnelSection");
 
-    const [applications, total] = await this.applicationRepo.findAndCount({
-      where,
-      relations: ["pipelineUnit", "startTunnelSection", "endTunnelSection"],
-      order: { createdAt: "DESC" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    });
+    if (filters.status) {
+      qb.andWhere("app.status = :status", { status: filters.status });
+    }
+    if (filters.pipelineUnitId) {
+      qb.andWhere("app.pipelineUnitId = :pipelineUnitId", {
+        pipelineUnitId: filters.pipelineUnitId,
+      });
+    }
+    if (filters.pipelineType) {
+      qb.andWhere("app.pipelineType = :pipelineType", {
+        pipelineType: filters.pipelineType,
+      });
+    }
+
+    qb.orderBy("app.createdAt", "DESC")
+      .skip((page - 1) * pageSize)
+      .take(pageSize);
+
+    const [applications, total] = await qb.getManyAndCount();
 
     return { items: applications, total, page, pageSize };
   }
@@ -477,17 +494,25 @@ class PipelineService {
     page: number = 1,
     pageSize: number = 20
   ) {
-    const where: any = {};
-    if (filters.pipelineUnitId) where.pipelineUnitId = filters.pipelineUnitId;
-    if (filters.status) where.status = filters.status;
+    const qb = this.billRepo
+      .createQueryBuilder("bill")
+      .leftJoinAndSelect("bill.pipelineUnit", "pipelineUnit")
+      .leftJoinAndSelect("bill.application", "application");
 
-    const [bills, total] = await this.billRepo.findAndCount({
-      where,
-      relations: ["pipelineUnit", "application"],
-      order: { createdAt: "DESC" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    });
+    if (filters.pipelineUnitId) {
+      qb.andWhere("bill.pipelineUnitId = :pipelineUnitId", {
+        pipelineUnitId: filters.pipelineUnitId,
+      });
+    }
+    if (filters.status) {
+      qb.andWhere("bill.status = :status", { status: filters.status });
+    }
+
+    qb.orderBy("bill.createdAt", "DESC")
+      .skip((page - 1) * pageSize)
+      .take(pageSize);
+
+    const [bills, total] = await qb.getManyAndCount();
 
     return { items: bills, total, page, pageSize };
   }

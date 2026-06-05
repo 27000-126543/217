@@ -14,48 +14,50 @@ import { UserRole } from "../entities/enums";
 
 const router = Router();
 
-router.post("/auth/login", authController.login);
-router.post("/auth/register", authController.register);
-router.get("/auth/me", authMiddleware, authController.getCurrentUser);
+const bind = (obj: any, method: string) => obj[method].bind(obj);
+
+router.post("/auth/login", bind(authController, "login"));
+router.post("/auth/register", bind(authController, "register"));
+router.get("/auth/me", authMiddleware, bind(authController, "getCurrentUser"));
 
 router.post(
   "/sensors/data",
   authMiddleware,
-  sensorController.collectSensorData
+  bind(sensorController, "collectSensorData")
 );
-router.get("/sensors", authMiddleware, sensorController.getSensors);
-router.get("/sensors/:sensorId/data", authMiddleware, sensorController.getSensorData);
+router.get("/sensors", authMiddleware, bind(sensorController, "getSensors"));
+router.get("/sensors/:sensorId/data", authMiddleware, bind(sensorController, "getSensorData"));
 router.get(
   "/sensors/:sensorId/latest",
   authMiddleware,
-  sensorController.getLatestSensorData
+  bind(sensorController, "getLatestSensorData")
 );
 router.put(
   "/sensors/:sensorId/threshold",
   authMiddleware,
   roleMiddleware([UserRole.ADMIN, UserRole.MAINTENANCE_SUPERVISOR]),
-  sensorController.updateThreshold
+  bind(sensorController, "updateThreshold")
 );
 
-router.get("/alarms/active", authMiddleware, sensorController.getActiveAlarms);
-router.get("/alarms/history", authMiddleware, sensorController.getAlarmHistory);
+router.get("/alarms/active", authMiddleware, bind(sensorController, "getActiveAlarms"));
+router.get("/alarms/history", authMiddleware, bind(sensorController, "getAlarmHistory"));
 router.put(
   "/alarms/:alarmId/acknowledge",
   authMiddleware,
-  sensorController.acknowledgeAlarm
+  bind(sensorController, "acknowledgeAlarm")
 );
 router.put(
   "/alarms/:alarmId/resolve",
   authMiddleware,
-  sensorController.resolveAlarm
+  bind(sensorController, "resolveAlarm")
 );
 router.put(
   "/alarms/:alarmId/escalate",
   authMiddleware,
-  sensorController.escalateAlarm
+  bind(sensorController, "escalateAlarm")
 );
 
-router.get("/devices", authMiddleware, deviceController.getDevices);
+router.get("/devices", authMiddleware, bind(deviceController, "getDevices"));
 router.put(
   "/devices/:deviceId/control",
   authMiddleware,
@@ -64,14 +66,14 @@ router.put(
     UserRole.MAINTENANCE_SUPERVISOR,
     UserRole.MAINTENANCE_WORKER,
   ]),
-  deviceController.controlDevice
+  bind(deviceController, "controlDevice")
 );
 router.get(
   "/devices/:deviceId/logs",
   authMiddleware,
-  deviceController.getControlLogs
+  bind(deviceController, "getControlLogs")
 );
-router.get("/energy/reports", authMiddleware, deviceController.getEnergyReports);
+router.get("/energy/reports", authMiddleware, bind(deviceController, "getEnergyReports"));
 
 router.post(
   "/inspections",
@@ -81,110 +83,110 @@ router.post(
     UserRole.MAINTENANCE_SUPERVISOR,
     UserRole.INSPECTOR,
   ]),
-  workOrderController.createInspection
+  bind(workOrderController, "createInspection")
 );
 
 router.post(
   "/work-orders",
   authMiddleware,
-  workOrderController.createWorkOrder
+  bind(workOrderController, "createWorkOrder")
 );
-router.get("/work-orders", authMiddleware, workOrderController.getWorkOrders);
+router.get("/work-orders", authMiddleware, bind(workOrderController, "getWorkOrders"));
 router.put(
   "/work-orders/:workOrderId/assign",
   authMiddleware,
   roleMiddleware([UserRole.ADMIN, UserRole.MAINTENANCE_SUPERVISOR]),
-  workOrderController.assignWorkOrder
+  bind(workOrderController, "assignWorkOrder")
 );
 router.put(
   "/work-orders/:workOrderId/start",
   authMiddleware,
-  workOrderController.startWorkOrder
+  bind(workOrderController, "startWorkOrder")
 );
 router.put(
   "/work-orders/:workOrderId/complete",
   authMiddleware,
-  workOrderController.completeWorkOrder
+  bind(workOrderController, "completeWorkOrder")
 );
 router.put(
   "/work-orders/:workOrderId/close",
   authMiddleware,
   roleMiddleware([UserRole.ADMIN, UserRole.MAINTENANCE_SUPERVISOR]),
-  workOrderController.closeWorkOrder
+  bind(workOrderController, "closeWorkOrder")
 );
 router.put(
   "/work-orders/:workOrderId/escalate",
   authMiddleware,
-  workOrderController.escalateWorkOrder
+  bind(workOrderController, "escalateWorkOrder")
 );
 router.get(
   "/work-orders/:workOrderId/history",
   authMiddleware,
-  workOrderController.getWorkOrderHistory
+  bind(workOrderController, "getWorkOrderHistory")
 );
 
 router.get(
   "/hidden-dangers",
   authMiddleware,
-  workOrderController.getHiddenDangers
+  bind(workOrderController, "getHiddenDangers")
 );
 router.put(
   "/hidden-dangers/:dangerId/resolve",
   authMiddleware,
   roleMiddleware([UserRole.ADMIN, UserRole.MAINTENANCE_SUPERVISOR]),
-  workOrderController.resolveHiddenDanger
+  bind(workOrderController, "resolveHiddenDanger")
 );
 
 router.post(
   "/entry-applications",
   authMiddleware,
   roleMiddleware([UserRole.ADMIN, UserRole.PIPELINE_UNIT]),
-  pipelineController.createApplication
+  bind(pipelineController, "createApplication")
 );
 router.get(
   "/entry-applications",
   authMiddleware,
-  pipelineController.getApplications
+  bind(pipelineController, "getApplications")
 );
 router.put(
   "/entry-applications/:applicationId/approve",
   authMiddleware,
   roleMiddleware([UserRole.ADMIN]),
-  pipelineController.approveApplication
+  bind(pipelineController, "approveApplication")
 );
 router.put(
   "/entry-applications/:applicationId/reject",
   authMiddleware,
   roleMiddleware([UserRole.ADMIN]),
-  pipelineController.rejectApplication
+  bind(pipelineController, "rejectApplication")
 );
 
-router.get("/pipelines", authMiddleware, pipelineController.getPipelines);
-router.get("/pipeline-units", authMiddleware, pipelineController.getPipelineUnits);
+router.get("/pipelines", authMiddleware, bind(pipelineController, "getPipelines"));
+router.get("/pipeline-units", authMiddleware, bind(pipelineController, "getPipelineUnits"));
 
-router.get("/bills", authMiddleware, pipelineController.getBills);
-router.put("/bills/:billId/pay", authMiddleware, pipelineController.payBill);
+router.get("/bills", authMiddleware, bind(pipelineController, "getBills"));
+router.put("/bills/:billId/pay", authMiddleware, bind(pipelineController, "payBill"));
 
-router.get("/contracts", authMiddleware, pipelineController.getContracts);
+router.get("/contracts", authMiddleware, bind(pipelineController, "getContracts"));
 
-router.get("/reports/daily", authMiddleware, reportController.getDailyReports);
-router.get("/reports/statistics", authMiddleware, reportController.getStatistics);
-router.get("/reports/export", authMiddleware, reportController.exportReport);
+router.get("/reports/daily", authMiddleware, bind(reportController, "getDailyReports"));
+router.get("/reports/statistics", authMiddleware, bind(reportController, "getStatistics"));
+router.get("/reports/export", authMiddleware, bind(reportController, "exportReport"));
 
 router.get(
   "/notifications",
   authMiddleware,
-  notificationController.getUserNotifications
+  bind(notificationController, "getUserNotifications")
 );
 router.put(
   "/notifications/:notificationId/read",
   authMiddleware,
-  notificationController.markAsRead
+  bind(notificationController, "markAsRead")
 );
 router.put(
   "/notifications/read-all",
   authMiddleware,
-  notificationController.markAllAsRead
+  bind(notificationController, "markAllAsRead")
 );
 
 export default router;

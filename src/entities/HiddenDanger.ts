@@ -35,7 +35,7 @@ export class HiddenDanger extends BaseEntity {
   @Column({ default: false })
   isResolved: boolean;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   resolvedAt: Date;
 
   @Column({ nullable: true })

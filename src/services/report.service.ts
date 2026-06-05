@@ -13,6 +13,7 @@ import {
   EntryApplicationStatus,
 } from "../entities/enums";
 import * as ExcelJS from "exceljs";
+import { Between } from "typeorm";
 
 class ReportService {
   private dailyReportRepo = AppDataSource.getRepository(DailyReport);
@@ -53,16 +54,15 @@ class ReportService {
     const endOfDay = new Date(reportDate);
     endOfDay.setHours(23, 59, 59, 999);
 
-    const dateRange = {
-      $between: [startOfDay, endOfDay],
-    };
-
-    const alarms = await this.alarmRepo.find({
-      where: {
-        createdAt: dateRange,
-        sensor: { tunnelSectionId },
-      },
-    });
+    const alarms = await this.alarmRepo
+      .createQueryBuilder("alarm")
+      .leftJoin("alarm.sensor", "sensor")
+      .where("sensor.tunnelSectionId = :tunnelSectionId", { tunnelSectionId })
+      .andWhere("alarm.createdAt BETWEEN :start AND :end", {
+        start: startOfDay,
+        end: endOfDay,
+      })
+      .getMany();
 
     const resolvedAlarms = alarms.filter(
       (a) => a.status === AlarmStatus.RESOLVED
@@ -80,12 +80,14 @@ class ReportService {
         ? responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length
         : 0;
 
-    const workOrders = await this.workOrderRepo.find({
-      where: {
-        createdAt: dateRange,
-        tunnelSectionId,
-      },
-    });
+    const workOrders = await this.workOrderRepo
+      .createQueryBuilder("wo")
+      .where("wo.tunnelSectionId = :tunnelSectionId", { tunnelSectionId })
+      .andWhere("wo.createdAt BETWEEN :start AND :end", {
+        start: startOfDay,
+        end: endOfDay,
+      })
+      .getMany();
 
     const completedWorkOrders = workOrders.filter(
       (w) =>
@@ -97,12 +99,14 @@ class ReportService {
       (w) => w.status === WorkOrderStatus.OVERDUE
     );
 
-    const inspections = await this.inspectionRepo.find({
-      where: {
-        startTime: dateRange,
-        tunnelSectionId,
-      },
-    });
+    const inspections = await this.inspectionRepo
+      .createQueryBuilder("i")
+      .where("i.tunnelSectionId = :tunnelSectionId", { tunnelSectionId })
+      .andWhere("i.startTime BETWEEN :start AND :end", {
+        start: startOfDay,
+        end: endOfDay,
+      })
+      .getMany();
 
     const completedInspections = inspections.filter((i) => i.endTime);
     const anomalyInspections = inspections.filter((i) => i.hasAnomaly);
@@ -114,31 +118,39 @@ class ReportService {
       },
     });
 
-    const newHiddenDangers = await this.hiddenDangerRepo.count({
-      where: {
-        createdAt: dateRange,
-        tunnelSectionId,
-      },
-    });
+    const newHiddenDangers = await this.hiddenDangerRepo
+      .createQueryBuilder("hd")
+      .where("hd.tunnelSectionId = :tunnelSectionId", { tunnelSectionId })
+      .andWhere("hd.createdAt BETWEEN :start AND :end", {
+        start: startOfDay,
+        end: endOfDay,
+      })
+      .getCount();
 
-    const resolvedHiddenDangers = await this.hiddenDangerRepo.count({
-      where: {
-        resolvedAt: dateRange,
-        tunnelSectionId,
-      },
-    });
+    const resolvedHiddenDangers = await this.hiddenDangerRepo
+      .createQueryBuilder("hd")
+      .where("hd.tunnelSectionId = :tunnelSectionId", { tunnelSectionId })
+      .andWhere("hd.resolvedAt BETWEEN :start AND :end", {
+        start: startOfDay,
+        end: endOfDay,
+      })
+      .getCount();
 
-    const newApplications = await this.applicationRepo.count({
-      where: {
-        createdAt: dateRange,
-      },
-    });
+    const newApplications = await this.applicationRepo
+      .createQueryBuilder("app")
+      .where("app.createdAt BETWEEN :start AND :end", {
+        start: startOfDay,
+        end: endOfDay,
+      })
+      .getCount();
 
-    const approvedApplications = await this.applicationRepo.count({
-      where: {
-        approvedAt: dateRange,
-      },
-    });
+    const approvedApplications = await this.applicationRepo
+      .createQueryBuilder("app")
+      .where("app.approvedAt BETWEEN :start AND :end", {
+        start: startOfDay,
+        end: endOfDay,
+      })
+      .getCount();
 
     const existingReport = await this.dailyReportRepo.findOne({
       where: {
@@ -211,11 +223,11 @@ class ReportService {
       return await this.dailyReportRepo.save(report);
     }
 
-    const sum = (arr: DailyReport[], key: keyof DailyReport) =>
-      arr.reduce((acc, r) => acc + (Number(r[key]) || 0), 0);
+    const sum = (key: keyof DailyReport) =>
+      sectionReports.reduce((acc, r) => acc + (Number(r[key]) || 0), 0);
 
-    const avg = (arr: DailyReport[], key: keyof DailyReport) => {
-      const values = arr
+    const avg = (key: keyof DailyReport) => {
+      const values = sectionReports
         .map((r) => Number(r[key]) || 0)
         .filter((v) => v > 0);
       return values.length > 0
@@ -233,28 +245,28 @@ class ReportService {
     const reportData = {
       reportDate: startOfDay,
       isSystemWide: true,
-      totalAlarms: sum(sectionReports, "totalAlarms"),
-      resolvedAlarms: sum(sectionReports, "resolvedAlarms"),
-      averageAlarmResponseTime: avg(sectionReports, "averageAlarmResponseTime"),
-      criticalAlarms: sum(sectionReports, "criticalAlarms"),
-      majorAlarms: sum(sectionReports, "majorAlarms"),
-      minorAlarms: sum(sectionReports, "minorAlarms"),
-      totalWorkOrders: sum(sectionReports, "totalWorkOrders"),
-      completedWorkOrders: sum(sectionReports, "completedWorkOrders"),
-      workOrderCompletionRate: avg(sectionReports, "workOrderCompletionRate"),
-      overdueWorkOrders: sum(sectionReports, "overdueWorkOrders"),
-      totalInspections: sum(sectionReports, "totalInspections"),
-      completedInspections: sum(sectionReports, "completedInspections"),
-      inspectionCompletionRate: avg(sectionReports, "inspectionCompletionRate"),
-      anomalyInspections: sum(sectionReports, "anomalyInspections"),
-      totalEnergyConsumed: sum(sectionReports, "totalEnergyConsumed"),
-      estimatedEnergyCost: sum(sectionReports, "estimatedEnergyCost"),
-      deviceActivationCount: sum(sectionReports, "deviceActivationCount"),
-      automaticControlCount: sum(sectionReports, "automaticControlCount"),
-      newHiddenDangers: sum(sectionReports, "newHiddenDangers"),
-      resolvedHiddenDangers: sum(sectionReports, "resolvedHiddenDangers"),
-      newEntryApplications: sum(sectionReports, "newEntryApplications"),
-      approvedEntryApplications: sum(sectionReports, "approvedEntryApplications"),
+      totalAlarms: sum("totalAlarms"),
+      resolvedAlarms: sum("resolvedAlarms"),
+      averageAlarmResponseTime: avg("averageAlarmResponseTime"),
+      criticalAlarms: sum("criticalAlarms"),
+      majorAlarms: sum("majorAlarms"),
+      minorAlarms: sum("minorAlarms"),
+      totalWorkOrders: sum("totalWorkOrders"),
+      completedWorkOrders: sum("completedWorkOrders"),
+      workOrderCompletionRate: avg("workOrderCompletionRate"),
+      overdueWorkOrders: sum("overdueWorkOrders"),
+      totalInspections: sum("totalInspections"),
+      completedInspections: sum("completedInspections"),
+      inspectionCompletionRate: avg("inspectionCompletionRate"),
+      anomalyInspections: sum("anomalyInspections"),
+      totalEnergyConsumed: sum("totalEnergyConsumed"),
+      estimatedEnergyCost: sum("estimatedEnergyCost"),
+      deviceActivationCount: sum("deviceActivationCount"),
+      automaticControlCount: sum("automaticControlCount"),
+      newHiddenDangers: sum("newHiddenDangers"),
+      resolvedHiddenDangers: sum("resolvedHiddenDangers"),
+      newEntryApplications: sum("newEntryApplications"),
+      approvedEntryApplications: sum("approvedEntryApplications"),
     };
 
     if (existingReport) {
@@ -273,23 +285,32 @@ class ReportService {
     page: number = 1,
     pageSize: number = 30
   ) {
-    const where: any = {};
+    const qb = this.dailyReportRepo
+      .createQueryBuilder("report")
+      .leftJoinAndSelect("report.tunnelSection", "tunnelSection");
+
     if (tunnelSectionId) {
-      where.tunnelSectionId = tunnelSectionId;
+      qb.andWhere("report.tunnelSectionId = :tunnelSectionId", {
+        tunnelSectionId,
+      });
     } else {
-      where.isSystemWide = true;
-    }
-    if (startDate && endDate) {
-      where.reportDate = { $between: [startDate, endDate] };
+      qb.andWhere("report.isSystemWide = :isSystemWide", {
+        isSystemWide: true,
+      });
     }
 
-    const [reports, total] = await this.dailyReportRepo.findAndCount({
-      where,
-      relations: ["tunnelSection"],
-      order: { reportDate: "DESC" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    });
+    if (startDate && endDate) {
+      qb.andWhere("report.reportDate BETWEEN :start AND :end", {
+        start: startDate,
+        end: endDate,
+      });
+    }
+
+    qb.orderBy("report.reportDate", "DESC")
+      .skip((page - 1) * pageSize)
+      .take(pageSize);
+
+    const [reports, total] = await qb.getManyAndCount();
 
     return { items: reports, total, page, pageSize };
   }
@@ -336,7 +357,8 @@ class ReportService {
     for (const report of reports) {
       worksheet.addRow({
         reportDate: report.reportDate.toISOString().split("T")[0],
-        tunnelSection: report.tunnelSection?.name || "全系统",
+        tunnelSection:
+          (report as any).tunnelSection?.name || "全系统",
         totalAlarms: report.totalAlarms,
         resolvedAlarms: report.resolvedAlarms,
         avgResponseTime: report.averageAlarmResponseTime.toFixed(2),
@@ -366,10 +388,14 @@ class ReportService {
       fgColor: { argb: "FFE0E0E0" },
     };
 
-    return await workbook.xlsx.writeBuffer();
+    return (await workbook.xlsx.writeBuffer()) as Buffer;
   }
 
-  async getStatistics(startDate: Date, endDate: Date, tunnelSectionId?: string) {
+  async getStatistics(
+    startDate: Date,
+    endDate: Date,
+    tunnelSectionId?: string
+  ) {
     const { items: reports } = await this.getDailyReports(
       tunnelSectionId,
       startDate,

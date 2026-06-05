@@ -13,14 +13,14 @@ export class EmergencyPlan extends BaseEntity {
   description: string;
 
   @Column({
-    type: "enum",
-    enum: SensorType,
+    type: "varchar",
+    length: 50,
   })
   eventType: SensorType;
 
   @Column({
-    type: "enum",
-    enum: AlarmLevel,
+    type: "varchar",
+    length: 50,
   })
   severityLevel: AlarmLevel;
 

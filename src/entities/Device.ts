@@ -13,14 +13,14 @@ export class Device extends BaseEntity {
   name: string;
 
   @Column({
-    type: "enum",
-    enum: DeviceType,
+    type: "varchar",
+    length: 50,
   })
   type: DeviceType;
 
   @Column({
-    type: "enum",
-    enum: DeviceStatus,
+    type: "varchar",
+    length: 50,
     default: DeviceStatus.OFF,
   })
   status: DeviceStatus;
@@ -34,7 +34,7 @@ export class Device extends BaseEntity {
   @Column({ default: true })
   isActive: boolean;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   lastMaintenanceAt: Date;
 
   @ManyToOne(() => TunnelSection, (tunnelSection) => tunnelSection.devices)

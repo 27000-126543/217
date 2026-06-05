@@ -9,12 +9,13 @@ import {
   AlarmLevel,
   AlarmStatus,
   SensorType,
+  UserRole,
+  NotificationType,
 } from "../entities/enums";
 import { wsService } from "./websocket.service";
 import { notificationService } from "./notification.service";
-import { NotificationType } from "../entities/enums";
 import { User } from "../entities/User";
-import { UserRole } from "../entities/enums";
+import { Between } from "typeorm";
 
 class SensorService {
   private sensorRepo = AppDataSource.getRepository(Sensor);
@@ -76,7 +77,6 @@ class SensorService {
     });
 
     let currentStatus: SensorStatus = SensorStatus.NORMAL;
-    let triggeredAlarm: Alarm | null = null;
 
     for (const threshold of thresholds) {
       const isWarning =
@@ -97,7 +97,7 @@ class SensorService {
 
       if (isAlarm) {
         currentStatus = SensorStatus.ALARM;
-        triggeredAlarm = await this.createAlarm(
+        await this.createAlarm(
           sensor,
           value,
           threshold.alarmLevel,
@@ -114,8 +114,6 @@ class SensorService {
       sensor.status = currentStatus;
       await this.sensorRepo.save(sensor);
     }
-
-    return triggeredAlarm;
   }
 
   private async createAlarm(
@@ -125,10 +123,12 @@ class SensorService {
     thresholdValue: number,
     sensorDataId: string
   ): Promise<Alarm> {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const existingActiveAlarm = await this.alarmRepo.findOne({
       where: {
         sensorId: sensor.id,
         status: AlarmStatus.PENDING,
+        createdAt: Between(oneHourAgo, new Date()),
       },
       order: { createdAt: "DESC" },
     });
@@ -146,10 +146,16 @@ class SensorService {
       relations: ["resourceAllocations"],
     });
 
+    const levelText = {
+      [AlarmLevel.CRITICAL]: "严重",
+      [AlarmLevel.MAJOR]: "重要",
+      [AlarmLevel.MINOR]: "一般",
+    };
+
     const alarm = this.alarmRepo.create({
       sensorId: sensor.id,
       sensorDataId,
-      title: `${sensor.name} ${level === AlarmLevel.CRITICAL ? "严重" : level === AlarmLevel.MAJOR ? "重要" : "一般"}告警`,
+      title: `${sensor.name} ${levelText[level]}告警`,
       description: `传感器 ${sensor.name} 检测到异常值: ${value}, 阈值: ${thresholdValue}`,
       level,
       status: AlarmStatus.PENDING,
@@ -180,11 +186,15 @@ class SensorService {
       where: [
         { role: UserRole.ADMIN },
         { role: UserRole.COMMAND_CENTER },
-        { role: UserRole.MAINTENANCE_SUPERVISOR, department: sensor.tunnelSectionId },
       ],
     });
 
-    const userIds = admins.map((u) => u.id);
+    const supervisors = await this.userRepo.find({
+      where: { role: UserRole.MAINTENANCE_SUPERVISOR },
+    });
+
+    const allUsers = [...admins, ...supervisors];
+    const userIds = allUsers.map((u) => u.id);
 
     await notificationService.batchCreateNotifications(
       userIds,
@@ -204,7 +214,7 @@ class SensorService {
   ) {
     const where: any = { sensorId };
     if (startTime && endTime) {
-      where.timestamp = { $between: [startTime, endTime] };
+      where.timestamp = Between(startTime, endTime);
     }
 
     const [data, total] = await this.sensorDataRepo.findAndCount({
@@ -234,18 +244,19 @@ class SensorService {
     sensorId: string,
     thresholdData: Partial<SensorThreshold>
   ) {
-    let threshold = await this.thresholdRepo.findOne({
+    const existingThreshold = await this.thresholdRepo.findOne({
       where: { sensorId, isActive: true },
     });
 
-    if (threshold) {
-      threshold.isActive = false;
-      await this.thresholdRepo.save(threshold);
+    if (existingThreshold) {
+      existingThreshold.isActive = false;
+      await this.thresholdRepo.save(existingThreshold);
     }
 
     const newThreshold = this.thresholdRepo.create({
       ...thresholdData,
       sensorId,
+      isActive: true,
     });
 
     return await this.thresholdRepo.save(newThreshold);
@@ -287,17 +298,26 @@ class SensorService {
 
   async getActiveAlarms(tunnelSectionId?: string) {
     const where: any = {
-      status: { $in: [AlarmStatus.PENDING, AlarmStatus.ACKNOWLEDGED] },
+      status: { $in: [AlarmStatus.PENDING, AlarmStatus.ACKNOWLEDGED] } as any,
     };
+
+    const qb = this.alarmRepo
+      .createQueryBuilder("alarm")
+      .leftJoinAndSelect("alarm.sensor", "sensor")
+      .leftJoinAndSelect("alarm.emergencyPlan", "emergencyPlan")
+      .where("alarm.status IN (:...statuses)", {
+        statuses: [AlarmStatus.PENDING, AlarmStatus.ACKNOWLEDGED],
+      });
+
     if (tunnelSectionId) {
-      where.sensor = { tunnelSectionId };
+      qb.andWhere("sensor.tunnelSectionId = :tunnelSectionId", {
+        tunnelSectionId,
+      });
     }
 
-    return await this.alarmRepo.find({
-      where,
-      relations: ["sensor", "emergencyPlan"],
-      order: { createdAt: "DESC" },
-    });
+    qb.orderBy("alarm.createdAt", "DESC");
+
+    return await qb.getMany();
   }
 
   async getAlarmHistory(
@@ -307,21 +327,27 @@ class SensorService {
     page: number = 1,
     pageSize: number = 20
   ) {
-    const where: any = {};
+    const qb = this.alarmRepo
+      .createQueryBuilder("alarm")
+      .leftJoinAndSelect("alarm.sensor", "sensor")
+      .leftJoinAndSelect("alarm.emergencyPlan", "emergencyPlan");
+
     if (startTime && endTime) {
-      where.createdAt = { $between: [startTime, endTime] };
-    }
-    if (level) {
-      where.level = level;
+      qb.andWhere("alarm.createdAt BETWEEN :start AND :end", {
+        start: startTime,
+        end: endTime,
+      });
     }
 
-    const [alarms, total] = await this.alarmRepo.findAndCount({
-      where,
-      relations: ["sensor", "emergencyPlan"],
-      order: { createdAt: "DESC" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    });
+    if (level) {
+      qb.andWhere("alarm.level = :level", { level });
+    }
+
+    qb.orderBy("alarm.createdAt", "DESC")
+      .skip((page - 1) * pageSize)
+      .take(pageSize);
+
+    const [alarms, total] = await qb.getManyAndCount();
 
     return { items: alarms, total, page, pageSize };
   }

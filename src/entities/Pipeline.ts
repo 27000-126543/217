@@ -11,8 +11,8 @@ export class Pipeline extends BaseEntity {
   pipelineCode: string;
 
   @Column({
-    type: "enum",
-    enum: PipelineType,
+    type: "varchar",
+    length: 50,
   })
   type: PipelineType;
 
@@ -61,6 +61,6 @@ export class Pipeline extends BaseEntity {
   @Column({ default: true })
   isActive: boolean;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   installationDate: Date;
 }

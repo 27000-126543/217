@@ -24,8 +24,8 @@ export class SensorThreshold extends BaseEntity {
   alarmMax: number;
 
   @Column({
-    type: "enum",
-    enum: AlarmLevel,
+    type: "varchar",
+    length: 50,
     default: AlarmLevel.MAJOR,
   })
   alarmLevel: AlarmLevel;

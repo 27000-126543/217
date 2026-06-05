@@ -20,15 +20,15 @@ export class Notification extends BaseEntity {
   content: string;
 
   @Column({
-    type: "enum",
-    enum: NotificationType,
+    type: "varchar",
+    length: 50,
   })
   type: NotificationType;
 
   @Column({ default: false })
   isRead: boolean;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   readAt: Date;
 
   @ManyToOne(() => Alarm, (alarm) => alarm.notifications)

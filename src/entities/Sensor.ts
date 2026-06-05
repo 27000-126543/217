@@ -14,14 +14,14 @@ export class Sensor extends BaseEntity {
   name: string;
 
   @Column({
-    type: "enum",
-    enum: SensorType,
+    type: "varchar",
+    length: 50,
   })
   type: SensorType;
 
   @Column({
-    type: "enum",
-    enum: SensorStatus,
+    type: "varchar",
+    length: 50,
     default: SensorStatus.NORMAL,
   })
   status: SensorStatus;

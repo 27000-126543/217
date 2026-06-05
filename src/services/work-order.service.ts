@@ -13,8 +13,8 @@ import {
 } from "../entities/enums";
 import { wsService } from "./websocket.service";
 import { notificationService } from "./notification.service";
-import { v4 as uuidv4 } from "uuid";
 import { config } from "../config";
+import { Between } from "typeorm";
 
 class WorkOrderService {
   private inspectionRepo = AppDataSource.getRepository(Inspection);
@@ -23,17 +23,15 @@ class WorkOrderService {
   private hiddenDangerRepo = AppDataSource.getRepository(HiddenDanger);
   private userRepo = AppDataSource.getRepository(User);
 
-  async createInspection(
-    data: {
-      type: InspectionType;
-      inspectorId?: string;
-      tunnelSectionId: string;
-      route?: string;
-      findings?: string;
-      anomalyData?: any;
-      images?: string[];
-    }
-  ): Promise<Inspection> {
+  async createInspection(data: {
+    type: InspectionType;
+    inspectorId?: string;
+    tunnelSectionId: string;
+    route?: string;
+    findings?: string;
+    anomalyData?: any;
+    images?: string[];
+  }): Promise<Inspection> {
     const inspection = this.inspectionRepo.create({
       code: `INSP-${Date.now()}`,
       type: data.type,
@@ -75,6 +73,7 @@ class WorkOrderService {
         problemCategory: anomaly.category || "其他",
         priority: anomaly.priority || WorkOrderPriority.MEDIUM,
         tunnelSectionId: inspection.tunnelSectionId,
+        location: inspection.route,
         inspectionId: inspection.id,
       });
 
@@ -154,32 +153,23 @@ class WorkOrderService {
       },
     });
 
-    const filteredWorkers = workers.filter(
-      (w) => !w.team || w.team === workOrder.problemCategory
-    );
-
-    const targetWorkers =
-      filteredWorkers.length > 0 ? filteredWorkers : workers;
-
-    if (targetWorkers.length === 0) {
-      workOrder.status = WorkOrderStatus.CREATED;
-      return await this.workOrderRepo.save(workOrder);
+    if (workers.length === 0) {
+      return workOrder;
     }
 
     const workerWorkOrderCounts = await Promise.all(
-      targetWorkers.map(async (worker) => {
-        const count = await this.workOrderRepo.count({
-          where: {
-            assigneeId: worker.id,
-            status: {
-              $in: [
-                WorkOrderStatus.ASSIGNED,
-                WorkOrderStatus.IN_PROGRESS,
-                WorkOrderStatus.OVERDUE,
-              ],
-            },
-          },
-        });
+      workers.map(async (worker) => {
+        const count = await this.workOrderRepo
+          .createQueryBuilder("wo")
+          .where("wo.assigneeId = :assigneeId", { assigneeId: worker.id })
+          .andWhere("wo.status IN (:...statuses)", {
+            statuses: [
+              WorkOrderStatus.ASSIGNED,
+              WorkOrderStatus.IN_PROGRESS,
+              WorkOrderStatus.OVERDUE,
+            ],
+          })
+          .getCount();
         return { worker, count };
       })
     );
@@ -296,7 +286,6 @@ class WorkOrderService {
   ): Promise<WorkOrder> {
     const workOrder = await this.workOrderRepo.findOne({
       where: { id: workOrderId },
-      relations: ["creator"],
     });
     if (!workOrder) {
       throw new Error("Work order not found");
@@ -342,38 +331,31 @@ class WorkOrderService {
     const threeMonthsAgo = new Date();
     threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
 
-    const similarOrders = await this.workOrderRepo.find({
-      where: {
-        problemType: workOrder.problemType,
-        problemCategory: workOrder.problemCategory,
-        tunnelSectionId: workOrder.tunnelSectionId,
-        status: WorkOrderStatus.COMPLETED,
-      },
-    });
+    const similarOrders = await this.workOrderRepo
+      .createQueryBuilder("wo")
+      .where("wo.problemType = :problemType", { problemType: workOrder.problemType })
+      .andWhere("wo.problemCategory = :problemCategory", { problemCategory: workOrder.problemCategory })
+      .andWhere("wo.tunnelSectionId = :tunnelSectionId", { tunnelSectionId: workOrder.tunnelSectionId })
+      .andWhere("wo.status = :status", { status: WorkOrderStatus.COMPLETED })
+      .andWhere("wo.completedAt >= :date", { date: threeMonthsAgo })
+      .andWhere("wo.id != :id", { id: workOrder.id })
+      .getMany();
 
-    const recentOrders = similarOrders.filter(
-      (o) =>
-        o.completedAt &&
-        o.completedAt >= threeMonthsAgo &&
-        o.id !== workOrder.id
-    );
-
-    return recentOrders.length >= 2;
+    return similarOrders.length >= 2;
   }
 
   private async markAsRecurring(workOrder: WorkOrder) {
     workOrder.isRecurring = true;
-    workOrder.recurrenceCount = workOrder.recurrenceCount + 1;
+    workOrder.recurrenceCount = (workOrder.recurrenceCount || 0) + 1;
     await this.workOrderRepo.save(workOrder);
 
-    let hiddenDanger = await this.hiddenDangerRepo.findOne({
-      where: {
-        problemType: workOrder.problemType,
-        problemCategory: workOrder.problemCategory,
-        tunnelSectionId: workOrder.tunnelSectionId,
-        isResolved: false,
-      },
-    });
+    let hiddenDanger = await this.hiddenDangerRepo
+      .createQueryBuilder("hd")
+      .where("hd.problemType = :problemType", { problemType: workOrder.problemType })
+      .andWhere("hd.problemCategory = :problemCategory", { problemCategory: workOrder.problemCategory })
+      .andWhere("hd.tunnelSectionId = :tunnelSectionId", { tunnelSectionId: workOrder.tunnelSectionId })
+      .andWhere("hd.isResolved = :isResolved", { isResolved: false })
+      .getOne();
 
     if (!hiddenDanger) {
       hiddenDanger = this.hiddenDangerRepo.create({
@@ -390,7 +372,10 @@ class WorkOrderService {
       });
     }
 
-    hiddenDanger.occurrenceCount = hiddenDanger.occurrenceCount + 1;
+    hiddenDanger.occurrenceCount = (hiddenDanger.occurrenceCount || 0) + 1;
+    if (!hiddenDanger.workOrderIds) {
+      hiddenDanger.workOrderIds = [];
+    }
     if (!hiddenDanger.workOrderIds.includes(workOrder.id)) {
       hiddenDanger.workOrderIds.push(workOrder.id);
     }
@@ -398,10 +383,7 @@ class WorkOrderService {
     const savedDanger = await this.hiddenDangerRepo.save(hiddenDanger);
 
     const managers = await this.userRepo.find({
-      where: [
-        { role: UserRole.ADMIN },
-        { role: UserRole.MAINTENANCE_SUPERVISOR },
-      ],
+      where: [{ role: UserRole.ADMIN }, { role: UserRole.MAINTENANCE_SUPERVISOR }],
     });
 
     await notificationService.batchCreateNotifications(
@@ -474,7 +456,7 @@ class WorkOrderService {
       throw new Error("Work order not found");
     }
 
-    const newLevel = workOrder.escalationLevel + 1;
+    const newLevel = (workOrder.escalationLevel || 0) + 1;
     if (newLevel >= config.workOrder.escalationLevels.length) {
       throw new Error("已达到最高升级级别");
     }
@@ -519,20 +501,23 @@ class WorkOrderService {
 
   async checkOverdueWorkOrders() {
     const now = new Date();
-    const overdueOrders = await this.workOrderRepo.find({
-      where: {
-        status: {
-          $in: [WorkOrderStatus.ASSIGNED, WorkOrderStatus.IN_PROGRESS],
-        },
-        dueDate: { $lt: now },
-      },
-    });
+    const overdueOrders = await this.workOrderRepo
+      .createQueryBuilder("wo")
+      .where("wo.status IN (:...statuses)", {
+        statuses: [WorkOrderStatus.ASSIGNED, WorkOrderStatus.IN_PROGRESS],
+      })
+      .andWhere("wo.dueDate < :now", { now })
+      .getMany();
 
     for (const order of overdueOrders) {
       order.status = WorkOrderStatus.OVERDUE;
       await this.workOrderRepo.save(order);
 
-      await this.escalateWorkOrder(order.id);
+      try {
+        await this.escalateWorkOrder(order.id);
+      } catch (e) {
+        // 已经是最高级别，忽略
+      }
 
       if (order.assigneeId) {
         await notificationService.createNotification(
@@ -578,20 +563,33 @@ class WorkOrderService {
     page: number = 1,
     pageSize: number = 20
   ) {
-    const where: any = {};
-    if (filters.status) where.status = filters.status;
-    if (filters.priority) where.priority = filters.priority;
-    if (filters.assigneeId) where.assigneeId = filters.assigneeId;
-    if (filters.tunnelSectionId) where.tunnelSectionId = filters.tunnelSectionId;
-    if (filters.isRecurring !== undefined) where.isRecurring = filters.isRecurring;
+    const qb = this.workOrderRepo
+      .createQueryBuilder("wo")
+      .leftJoinAndSelect("wo.assignee", "assignee")
+      .leftJoinAndSelect("wo.creator", "creator")
+      .leftJoinAndSelect("wo.tunnelSection", "tunnelSection");
 
-    const [orders, total] = await this.workOrderRepo.findAndCount({
-      where,
-      relations: ["assignee", "creator", "tunnelSection"],
-      order: { createdAt: "DESC" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    });
+    if (filters.status) {
+      qb.andWhere("wo.status = :status", { status: filters.status });
+    }
+    if (filters.priority) {
+      qb.andWhere("wo.priority = :priority", { priority: filters.priority });
+    }
+    if (filters.assigneeId) {
+      qb.andWhere("wo.assigneeId = :assigneeId", { assigneeId: filters.assigneeId });
+    }
+    if (filters.tunnelSectionId) {
+      qb.andWhere("wo.tunnelSectionId = :tunnelSectionId", { tunnelSectionId: filters.tunnelSectionId });
+    }
+    if (filters.isRecurring !== undefined) {
+      qb.andWhere("wo.isRecurring = :isRecurring", { isRecurring: filters.isRecurring });
+    }
+
+    qb.orderBy("wo.createdAt", "DESC")
+      .skip((page - 1) * pageSize)
+      .take(pageSize);
+
+    const [orders, total] = await qb.getManyAndCount();
 
     return { items: orders, total, page, pageSize };
   }
@@ -608,16 +606,20 @@ class WorkOrderService {
     page: number = 1,
     pageSize: number = 20
   ) {
-    const where: any = {};
-    if (filters.tunnelSectionId) where.tunnelSectionId = filters.tunnelSectionId;
-    if (filters.isResolved !== undefined) where.isResolved = filters.isResolved;
+    const qb = this.hiddenDangerRepo.createQueryBuilder("hd");
 
-    const [dangers, total] = await this.hiddenDangerRepo.findAndCount({
-      where,
-      order: { occurrenceCount: "DESC" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    });
+    if (filters.tunnelSectionId) {
+      qb.andWhere("hd.tunnelSectionId = :tunnelSectionId", { tunnelSectionId: filters.tunnelSectionId });
+    }
+    if (filters.isResolved !== undefined) {
+      qb.andWhere("hd.isResolved = :isResolved", { isResolved: filters.isResolved });
+    }
+
+    qb.orderBy("hd.occurrenceCount", "DESC")
+      .skip((page - 1) * pageSize)
+      .take(pageSize);
+
+    const [dangers, total] = await qb.getManyAndCount();
 
     return { items: dangers, total, page, pageSize };
   }

@@ -12,14 +12,14 @@ export class DeviceControlLog extends BaseEntity {
   deviceId: string;
 
   @Column({
-    type: "enum",
-    enum: DeviceStatus,
+    type: "varchar",
+    length: 50,
   })
   previousStatus: DeviceStatus;
 
   @Column({
-    type: "enum",
-    enum: DeviceStatus,
+    type: "varchar",
+    length: 50,
   })
   newStatus: DeviceStatus;
 
@@ -32,7 +32,7 @@ export class DeviceControlLog extends BaseEntity {
   @Column({ nullable: true })
   operatorId: string;
 
-  @Column({ type: "timestamp" })
+  @Column()
   operationTime: Date;
 
   @Column("decimal", { precision: 10, scale: 2, default: 0 })

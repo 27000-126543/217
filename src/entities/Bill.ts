@@ -34,8 +34,8 @@ export class Bill extends BaseEntity {
   lateFee: number;
 
   @Column({
-    type: "enum",
-    enum: BillStatus,
+    type: "varchar",
+    length: 50,
     default: BillStatus.UNPAID,
   })
   status: BillStatus;
@@ -58,7 +58,7 @@ export class Bill extends BaseEntity {
   @Column({ default: 0 })
   reminderCount: number;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ nullable: true })
   lastReminderAt: Date;
 
   @Column("text", { nullable: true })
